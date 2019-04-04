@@ -1,0 +1,18 @@
+include MANIFEST.in
+include requirements.txt
+include *.json
+include *.md
+include *.py
+include *.txt
+recursive-include mobileapp *.css
+recursive-include mobileapp *.csv
+recursive-include mobileapp *.html
+recursive-include mobileapp *.ico
+recursive-include mobileapp *.js
+recursive-include mobileapp *.json
+recursive-include mobileapp *.md
+recursive-include mobileapp *.png
+recursive-include mobileapp *.py
+recursive-include mobileapp *.svg
+recursive-include mobileapp *.txt
+recursive-exclude mobileapp *.pyc
