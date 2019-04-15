@@ -88,7 +88,7 @@ def addLead(lead_name,gender,source,email_id,mobile_no,salutation=None):
 
 
 @frappe.whitelist(allow_guest=True)
-def makeCustomer(first_name,address_type,address_line1,city,pincode,state,country,last_name=None,address_line2=None,phone=None):
+def makeCustomer(first_name,address_type,address_line1,city,pincode,state,country,last_name=None,address_line2=None,phone=None,warehouse=None,customer_group=None,territory=None,popularity_rating=None,reputation_score=None,credit_limit=None,payment_terms=None,established_date=None,staff=None,market_segment=None,industry=None):
 	try:
 		customer_name=''
 		if not last_name==None:
@@ -107,7 +107,7 @@ def makeCustomer(first_name,address_type,address_line1,city,pincode,state,countr
 		return generateResponse("F",error=e)
 
 @frappe.whitelist(allow_guest=True)
-def makeAddress(customer,address_type,address_line1,city,pincode,state,country,address_line2=None,phone=None):
+def makeAddress(customer,address_type,address_line1,city,pincode,state,latitude=None,longitude=None,country=None,address_line2=None,phone=None,gstin=None,address_title=None,gst_state=None,visibility=None,area=None,floor=None,ownership=None,inside_image=None,outside_image=None,remarks=None):
 	try:
 		billing=0
 		shipping=0
@@ -118,6 +118,7 @@ def makeAddress(customer,address_type,address_line1,city,pincode,state,country,a
 		if address_type=="Both":
 			billing=1
 			shipping=1
+		json_obj='{"type":"FeatureCollection","features":[{"type":"Feature","properties":{"point_type":"circle","radius":100},"geometry":{"type":"Point","coordinates":['+longitude+','+latitude+']}}]}'
 		link=[]
 		link_json={}
 		link_json["parentfield"]="links"
@@ -136,9 +137,10 @@ def makeAddress(customer,address_type,address_line1,city,pincode,state,country,a
 				pincode=pincode,
 				state=state,
 				phone=phone,
-				gstin='NA',
+				gstin=gstin,
 				links=link,
-				country=country
+				country=country,
+				geolocation=json_obj
 				)).insert(ignore_permissions=True)
 		return generateResponse("S",message="Insert Successfully",data=address_doc)
 	except Exception as e:
@@ -268,6 +270,96 @@ def makeCustomerFromLead(lead_no):
 		return generateResponse("S",message="Lead Converted Successfully",data=res)
 	except Exception as e:
 		return generateResponse("F",error=e)
+
+
+
+@frappe.whitelist()
+def makeContact(customer,first_name,mobile_no,email_id,last_name=None,gender=None,departmeny=None,designation=None,birthday=None,anniversary=None):
+	try:
+		link_dict=[]
+		link_json={}
+		link_json["link_doctype"]="Customer"
+		link_json["link_name"]=customer
+		link_dict.append(link_json)
+		con_doc=frappe.get_doc(dict(
+			doctype="Contact",
+			first_name=first_name,
+			last_name=last_name,
+			mobile_no=mobile_no,
+			email_id=email_id,
+			links=link_dict
+		)).insert()
+		return generateResponse("S",message="Insert Successfully",data=con_doc)
+		
+	except Exception as e:
+		return generateResponse("F",error=e)
+
+
+
+@frappe.whitelist()
+def makeAssociatedProducts(customer,item_group=None,brand=None,remarks=None):
+	try:
+		doc=frappe.get_doc(dict(
+			doctype="Associated Products",
+			parent=customer,
+			parentfield="associated_products",
+			parenttype="Customer",
+			item_group=item_group,
+			brand=brand,
+			remarks=remarks
+		)).insert()
+		return generateResponse("S",message="Insert Successfully",data=doc)
+	except Exception as e:
+		return generateResponse("F",error=e)
+
+@frappe.whitelist()
+def makeAssociations(customer,associations=None,remarks=None):
+	try:
+		doc=frappe.get_doc(dict(
+			doctype="Associations",
+			parent=customer,
+			parentfield="associations",
+			parenttype="Customer",
+			associations=associations,
+			remarks=remarks
+		)).insert()
+		return generateResponse("S",message="Insert Successfully",data=doc)
+	except Exception as e:
+		return generateResponse("F",error=e)
+
+
+@frappe.whitelist()
+def getDuePayment(customer,paid_amount,date,company,mode_of_payment,reference_no,reference_date):
+	try:
+		doc=frappe.get_doc(dict(
+			doctype="Payment Entry",
+			company=company,
+			posting_date=date,
+			mode_of_payment=mode_of_payment,
+			party_type="Customer",
+			party=customer,
+			paid_amount=flt(paid_amount),
+			received_amount=flt(paid_amount),
+			reference_no=reference_no,
+			reference_date=reference_date,
+			payment_type="Receive",
+			paid_to="Cash - SI"
+		)).insert()
+		return doc
+
+
+
+
+	except Exception as e:
+		return generateResponse("F",error=e)
+
+
+
+
+
+
+
+
 
 
 
