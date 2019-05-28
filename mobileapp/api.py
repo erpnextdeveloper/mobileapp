@@ -145,6 +145,45 @@ def makeAddress(customer,address_type,address_line1,city,pincode,state,latitude=
 		return generateResponse("S",message="Insert Successfully",data=address_doc)
 	except Exception as e:
 		return generateResponse("F",error=e)
+@frappe.whitelist(allow_guest=True)
+def makeAddressLead(lead_no,address_type,address_line1,city,pincode,state,latitude=None,longitude=None,country=None,address_line2=None,phone=None,gstin=None,address_title=None,gst_state=None,visibility=None,area=None,floor=None,ownership=None,inside_image=None,outside_image=None,remarks=None):
+	try:
+		billing=0
+		shipping=0
+		if address_type=="Billing":
+			billing=1
+		if address_type=="Shipping":
+			shipping=1
+		if address_type=="Both":
+			billing=1
+			shipping=1
+		json_obj='{"type":"FeatureCollection","features":[{"type":"Feature","properties":{"point_type":"circle","radius":100},"geometry":{"type":"Point","coordinates":['+longitude+','+latitude+']}}]}'
+		link=[]
+		link_json={}
+		link_json["parentfield"]="links"
+		link_json["parenttype"]="Address"
+		link_json["link_doctype"]="Lead"
+		link_json["link_name"]=str(lead_no)
+		link.append(link_json)
+		address_doc=frappe.get_doc(dict(
+				doctype="Address",
+				address_type='Billing',
+				is_primary_address=billing,
+				is_shipping_address=shipping,
+				address_line1=address_line1,
+				address_line2=address_line2,
+				city=city,
+				pincode=pincode,
+				state=state,
+				phone=phone,
+				gstin=gstin,
+				links=link,
+				country=country,
+				geolocation=json_obj
+				)).insert(ignore_permissions=True)
+		return generateResponse("S",message="Insert Successfully",data=address_doc)
+	except Exception as e:
+		return generateResponse("F",error=e)
 
 
 @frappe.whitelist()
@@ -203,7 +242,7 @@ def getVoucherDetails(voucher_type,voucher_no):
 
 
 @frappe.whitelist()
-def getPendingInvoice(customer,from_date,to_date):
+def getPendingInvoice1(customer,from_date,to_date):
 	try:
 		invoice_list=frappe.get_list("Sales Invoice",filters=[["Sales Invoice","customer","=",str(customer)],["Sales Invoice","status","not in",["Draft","Paid","Cancelled","Return","Credit Note Issued"]],["Sales Invoice","posting_date","Between",[str(from_date),str(to_date)]]],fields=["posting_date","name","grand_total","rounded_total","outstanding_amount","status"])
 		return generateResponse("S",message="Data Get Successfully",data=invoice_list)
@@ -267,14 +306,52 @@ def makeCustomerFromLead(lead_no):
 	try:
 		lead_data=make_customer(lead_no)
 		res=lead_data.insert()
+		lead_doc=frappe.get_doc("Lead",lead_no)
+		if lead_doc.organization_lead:
+			makeContact(res.name,lead_doc.company_name,lead_doc.mobile_no,lead_doc.email_id,gender=lead_doc.gender,salutation=lead_doc.salutation,phone=lead_doc.phone)
+		else:
+			makeContact(res.name,lead_doc.lead_name,lead_doc.mobile_no,lead_doc.email_id,gender=lead_doc.gender,salutation=lead_doc.salutation,phone=lead_doc.phone)
+		
+		#result=getLeadAddName(lead_no)
+		#if not result=="False":
+		#	addAddressCustomer(result,res.name)
+		
 		return generateResponse("S",message="Lead Converted Successfully",data=res)
+
+	except Exception as e:
+		return generateResponse("F",error=e)
+
+@frappe.whitelist()
+def addAddressCustomer(name,customer):
+	try:
+		doc=frappe.get_doc(dict(
+			doctype="Dynamic Link",
+			parent=name,
+			link_doctype="Customer",
+			link_name=customer,
+			parenttype="Address",
+			parentfield="links"
+		)).insert()
+
+
 	except Exception as e:
 		return generateResponse("F",error=e)
 
 
+def getLeadAddName(lead_no):
+	data=frappe.db.sql("""select a.name from `tabAddress` as a inner join `tabDynamic Link` as d on a.name=d.parent where d.link_doctype='Lead' and d.link_name=%s""",lead_no)
+	if data:
+		if not data[0][0]==None:
+			return data[0][0]
+		else:
+			return 'False'
+	else:
+		return 'False'
+
+
 
 @frappe.whitelist()
-def makeContact(customer,first_name,mobile_no,email_id,last_name=None,gender=None,departmeny=None,designation=None,birthday=None,anniversary=None):
+def makeContact(customer,first_name,mobile_no,email_id,last_name=None,gender=None,department=None,designation=None,birthday=None,anniversary=None,salutation=None,phone=None):
 	try:
 		link_dict=[]
 		link_json={}
@@ -287,7 +364,10 @@ def makeContact(customer,first_name,mobile_no,email_id,last_name=None,gender=Non
 			last_name=last_name,
 			mobile_no=mobile_no,
 			email_id=email_id,
-			links=link_dict
+			links=link_dict,
+			gender=gender,
+			salutation=salutation,
+			phone=phone
 		)).insert()
 		return generateResponse("S",message="Insert Successfully",data=con_doc)
 		
@@ -329,29 +409,95 @@ def makeAssociations(customer,associations=None,remarks=None):
 
 
 @frappe.whitelist()
-def getDuePayment(customer,paid_amount,date,company,mode_of_payment,reference_no,reference_date):
+def addPayment(customer,paid_amount,date,company,mode_of_payment,reference_no,reference_date,references=None):
 	try:
 		doc=frappe.get_doc(dict(
 			doctype="Payment Entry",
 			company=company,
 			posting_date=date,
 			mode_of_payment=mode_of_payment,
+			paid_to="Cash - SI",
 			party_type="Customer",
 			party=customer,
 			paid_amount=flt(paid_amount),
 			received_amount=flt(paid_amount),
 			reference_no=reference_no,
 			reference_date=reference_date,
-			payment_type="Receive",
-			paid_to="Cash - SI"
+			payment_type="Receive"
 		)).insert()
-		return doc
-
-
-
+		for row in json.loads(references):
+			addReferences(doc.name,row["reference_name"],row["allocated_amount"])
+		doc_res=frappe.get_doc("Payment Entry",doc.name)
+		doc_res.save()
+		return generateResponse("S",message="Payment Added Successfully",data=doc_res)
 
 	except Exception as e:
 		return generateResponse("F",error=e)
+
+@frappe.whitelist()
+def addReferences(name,inv_num,allocated_amount):
+	try:
+		doc=frappe.get_doc(dict(
+			doctype="Payment Entry Reference",
+			parent=name,
+			parentfield="references",
+			parenttype="Payment Entry",
+			reference_doctype="Sales Invoice",
+			reference_name=inv_num,
+			total_amount=frappe.db.get_value("Sales Invoice",inv_num,"rounded_total"),
+			outstanding_amount=frappe.db.get_value("Sales Invoice",inv_num,"outstanding_amount"),
+			allocated_amount=allocated_amount
+		)).insert()
+		
+
+	except Exception as e:
+		return generateResponse("F",error=e)
+
+
+
+@frappe.whitelist()
+def getPendingInvoice(customer):
+	try:
+		invoice_list=frappe.db.sql("""select name,grand_total,outstanding_amount,company from `tabSales Invoice` where outstanding_amount>0 and customer=%s and status not in("Draft","Paid","Cancelled","Return","Credit Note Issued")""",customer,as_dict=1)
+		return generateResponse("S",message="Get Successfully",data=invoice_list)
+	except Exception as e:
+		return generateResponse("F",error=e)
+
+
+@frappe.whitelist()
+def getReceivableSummary(date=None):
+	try:
+		if date==None:
+			date=today()
+		filter_json={}	
+		filter_json["ageing_based_on"] = "Posting Date"
+		filter_json["report_date"] = str(date)
+		filter_json["range1"] = 30
+		filter_json["range2"] = 60
+		filter_json["range3"] = 90	
+		res=query_report.run("Accounts Receivable Summary",filter_json)
+		result=[]
+		for res_row in res["result"]:
+			item_json={}
+			item_json["customer"]=res_row[0]
+			item_json["advance_amount"]=res_row[1]
+			item_json["total_invoiced_amount"]=res_row[2]
+			item_json["total_paid_amount"]=res_row[3]
+			item_json["credit_note_amount"]=res_row[4]
+			item_json["total_outstanding_amount"]=res_row[5]
+			item_json["0-30"]=res_row[6]
+			item_json["30-60"]=res_row[7]
+			item_json["60-90"]=res_row[8]
+			item_json["90-above"]=res_row[9]
+			result.append(item_json)
+		return result
+
+	except Exception as e:
+		return generateResponse("F",error=e)
+
+
+
+
 
 
 
